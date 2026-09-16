@@ -1,0 +1,13 @@
+# Caminhos para o Google Drive
+path: /content/drive/MyDrive/TCC_Dataset
+train: images/train
+val: images/val
+
+# Classes base do projeto
+names:
+  0: pessoa
+  1: veiculo
+  2: cao
+  3: gato
+  4: sacola_lixo
+  5: entulho_lixo
