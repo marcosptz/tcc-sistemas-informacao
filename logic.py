@@ -11,7 +11,7 @@ class TrackerComportamental:
     # Desativado o best.pt para carregar o modelo oficial do YOLO
     #self.model = YOLO(model_path)
     # Carregando o modelo oficial pré treinado na COCO
-    self.model = YOLO('yolov8s.pt')
+    self.model = YOLO('yolov8m.pt')
     self.limite_segundos = limite_tempo_estatico_segundos
 
     # Histórico de rastreamento para controle de tempo: {track_id: timestamp_inicial}
