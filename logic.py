@@ -56,10 +56,10 @@ class TrackerComportamental:
         # 1. Agrupamento por Categoria
         if nome_classe in ['person', 'pessoa']:  # Pessoas
           pessoas.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro})
-        #elif nome_classe in ['dog', 'cat', 'cachorro', 'gato', 'animal']:  # Animais (Cães e Gatos)
-          #animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe})
-        #elif nome_classe in CLASSES_OBJETOS:  # Que podem ser consideradas objetos/recipientes/lixo
-          #objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
+        elif nome_classe in ['dog', 'cat', 'cachorro', 'gato', 'animal']:  # Animais (Cães e Gatos)
+          animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe})
+        elif nome_classe in CLASSES_OBJETOS:  # Que podem ser consideradas objetos/recipientes/lixo
+          objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
         else:  # Qualquer outro objeto (saco, garrafa, caixa, objeto_abandonado)
           objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
 
