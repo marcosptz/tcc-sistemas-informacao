@@ -24,9 +24,24 @@ class TrackerComportamental:
     # Executa a detecção e o rastreamento do YOLOv8
     results = self.model.track(frame, persist=True, conf=0.15, imgsz=800,)
 
+    # Classes base do dataset COCO que serão utilizadas para separar pessoas, animais e objetos
     pessoas = []
     animais = []
     objetos = []
+    # Classes do dataset COCO que podem ser consideradas objetos/recipientes/lixo
+    CLASSES_OBJETOS = [
+        'bottle',
+        'cup',
+        'backpack',
+        'handbag',
+        'suitcase',
+        'box',
+        'sports ball',
+        'cell phone',
+        'book',
+        'bowl',
+        'umbrella',
+    ]
 
     if results[0].boxes is not None and results[0].boxes.id is not None:
       boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -39,12 +54,13 @@ class TrackerComportamental:
         centro = ((x1 + x2) // 2, (y1 + y2) // 2)
 
         # 1. Agrupamento por Categoria
-        if nome_classe in ['person', 'pessoa']:
+        if nome_classe in ['person', 'pessoa']:  # Pessoas
           pessoas.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro})
-        elif nome_classe in ['dog', 'cat', 'cachorro', 'gato', 'animal']:
+        elif nome_classe in ['dog', 'cat', 'cachorro', 'gato', 'animal']:  # Animais (Cães e Gatos)
           animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe})
-        else:
-          # Qualquer outro objeto (saco, garrafa, caixa, objeto_abandonado)
+        elif nome_classe in CLASSES_OBJETOS:  # Que podem ser consideradas objetos/recipientes/lixo
+          objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
+        else:  # Qualquer outro objeto (saco, garrafa, caixa, objeto_abandonado)
           objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
 
     # 2. Desenha Detecções de ANIMAIS (Alerta de Presença)
