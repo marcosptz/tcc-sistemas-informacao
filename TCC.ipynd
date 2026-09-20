@@ -1,0 +1,81 @@
+!pip install -q --upgrade ultralytics gradio opencv-python
+
+import os
+import shutil
+import sys
+import cv2
+import gradio as gr
+from google.colab import drive
+from ultralytics import YOLO
+
+drive.mount('/content/drive')
+
+# 1. Atualiza o repositório GitHub
+if os.path.exists('/content/projeto_tcc'):
+  shutil.rmtree('/content/projeto_tcc')
+
+!git clone https://github.com/marcosptz/tcc-sistemas-informacao.git /content/projeto_tcc
+
+if '/content/projeto_tcc' not in sys.path:
+  sys.path.append('/content/projeto_tcc')
+
+from logic import TrackerComportamental
+
+# -------------------------------------------------------------
+# Escolha qual modelo quer usar (Descomente apenas uma das opções):
+# -------------------------------------------------------------
+
+# Opção A: YOLOv8s, YOLO11s, YOLO26s (Nome correto: sem o 'v')
+MODEL_PATH = 'yolo26s.pt'
+
+# Opção B: Seu modelo customizado de Lixo treinado no Roboflow
+# MODEL_PATH = '/content/drive/MyDrive/TCC_Resultados/treino_lixo_v1/weights/best.pt'
+
+# 2. Inicializa o Tracker passando a STRING com o caminho do modelo
+tracker = TrackerComportamental(
+    model_path=MODEL_PATH, limite_tempo_estatico_segundos=3
+)
+
+# 3. DEFINE A FUNÇÃO PROCESSAR_VIDEO_COLAB
+def processar_video_colab(video_path):
+  if video_path is None:
+    return None
+
+  cap = cv2.VideoCapture(video_path)
+  width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+  height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+  fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+
+  temp_output = '/content/temp_processado.mp4'
+  final_output = '/content/video_processado.mp4'
+
+  fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+  out = cv2.VideoWriter(temp_output, fourcc, fps, (width, height))
+
+  while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+      break
+
+    # Processa o frame com a lógica de detecção e tempo estático
+    frame_anotado, _ = tracker.processar_frame(frame)
+    out.write(frame_anotado)
+
+  cap.release()
+  out.release()
+
+  # Converte para H.264 usando FFmpeg para compatibilidade com o navegador no Gradio
+  os.system(f'ffmpeg -y -i {temp_output} -vcodec libx264 {final_output}')
+
+  return final_output
+
+
+# 4. Inicializa e lança a Interface do Gradio
+demo = gr.Interface(
+    fn=processar_video_colab,
+    inputs=gr.Video(label="Upload do Vídeo de Teste"),
+    outputs=gr.Video(label="Vídeo com Detecção e Alertas"),
+    title="Sistema de Monitoramento com IA - COCO Model",
+)
+
+demo.launch(share=True, debug=True)
