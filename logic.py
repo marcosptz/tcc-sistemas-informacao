@@ -8,7 +8,10 @@ class TrackerComportamental:
   def __init__(self, model_path, limite_tempo_estatico_segundos=3):
     from ultralytics import YOLO
 
-    self.model = YOLO(model_path)
+    # Desativado o best.pt para carregar o modelo oficial do YOLO
+    #self.model = YOLO(model_path)
+    # Carregando o modelo oficial pré treinado na COCO
+    self.model = YOLO(yolov8n.pt)
     self.limite_segundos = limite_tempo_estatico_segundos
 
     # Histórico de rastreamento para controle de tempo: {track_id: timestamp_inicial}
