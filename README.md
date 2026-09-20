@@ -15,7 +15,7 @@ Clique no botão abaixo para abrir o notebook pronto para execução no Google C
 ## 🛠️ Tecnologias Utilizadas
 
 * **Python 3.10+**
-* **YOLOv8 / YOLO11 (Ultralytics):** Visão computacional para detecção e rastreamento (*Tracking*) de objetos e pessoas.
+* **YOLOv8 / YOLO11 / YOLO26 (Ultralytics):** Visão computacional para detecção e rastreamento (*Tracking*) de objetos e pessoas.
 * **OpenCV:** Processamento e manipulação dos quadros dos vídeos.
 * **Gradio:** Interface web interativa no navegador para envio de vídeos e visualização em tempo real.
 * **FFmpeg:** Codificação de saída de vídeo compatível com navegadores web (H.264).
