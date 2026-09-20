@@ -22,7 +22,7 @@ class TrackerComportamental:
 
   def processar_frame(self, frame):
     # Executa a detecção e o rastreamento do YOLOv8
-    results = self.model.track(frame, persist=True, conf=0.25)
+    results = self.model.track(frame, persist=True, conf=0.15, imgsz=800,)
 
     pessoas = []
     animais = []
