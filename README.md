@@ -47,7 +47,6 @@ Clique no botão abaixo para abrir o notebook pronto para execução no Google C
 Se preferir rodar manualmente em qualquer bloco de notas do Colab, utilize o código abaixo:
 
 ```python
-# 1. Instalação e Atualização de Dependências
 !pip install -q --upgrade ultralytics gradio opencv-python
 
 import os
@@ -56,39 +55,37 @@ import sys
 import cv2
 import gradio as gr
 from google.colab import drive
-
-# 2. Atualização Automática do Repositório GitHub
-REPO_DIR = '/content/projeto_tcc'
-if os.path.exists(REPO_DIR):
-  shutil.rmtree(REPO_DIR)
-
-!git clone [https://github.com/marcosptz/tcc-sistemas-informacao.git](https://github.com/marcosptz/tcc-sistemas-informacao.git) {REPO_DIR}
-
-if REPO_DIR not in sys.path:
-  sys.path.append(REPO_DIR)
-
-from logic import TrackerComportamental
 from ultralytics import YOLO
 
-# 3. Inicialização do Modelo YOLO (Defina 'yolo11s.pt' ou o caminho do seu 'best.pt')
+drive.mount('/content/drive')
+
+# 1. Atualiza o repositório GitHub
+if os.path.exists('/content/projeto_tcc'):
+  shutil.rmtree('/content/projeto_tcc')
+
+!git clone https://github.com/marcosptz/tcc-sistemas-informacao.git /content/projeto_tcc
+
+if '/content/projeto_tcc' not in sys.path:
+  sys.path.append('/content/projeto_tcc')
+
+from logic import TrackerComportamental
 
 # -------------------------------------------------------------
 # Escolha qual modelo quer usar (Descomente apenas uma das opções):
 # -------------------------------------------------------------
 
-# Opção A: yolov8s, yolo11s, yolo26s (Nome correto: sem o 'v')
-MODEL_PATH = 'yolo26s.pt'
+# Opção A: YOLOv8s, YOLO11s, YOLO26s (Nome correto: sem o 'v')
+# MODEL_PATH = 'yolo26s.pt'
 
 # Opção B: Seu modelo customizado de Lixo treinado no Roboflow
-# MODEL_PATH = '/content/drive/MyDrive/TCC_Resultados/treino_lixo_v1/weights/best.pt'
+MODEL_PATH = '/content/drive/MyDrive/TCC_Resultados/treino_lixo_yolo11/weights/best.pt'
 
+# 2. Inicializa o Tracker passando a STRING com o caminho do modelo
 tracker = TrackerComportamental(
-    model_path=MODELO_PATH, limite_tempo_estatico_segundos=3
+    model_path=MODEL_PATH, limite_tempo_estatico_segundos=3
 )
-model = YOLO(MODELO_PATH)
 
-
-# 4. Função para Processamento do Vídeo
+# 3. DEFINE A FUNÇÃO PROCESSAR_VIDEO_COLAB
 def processar_video_colab(video_path):
   if video_path is None:
     return None
@@ -109,25 +106,25 @@ def processar_video_colab(video_path):
     if not ret:
       break
 
-    # Inferência com resolução para CFTV (imgsz=1024)
-    results = model.track(frame, persist=True, conf=0.10, imgsz=1024)
-    frame_anotado = results[0].plot()
+    # Processa o frame com a lógica de detecção e tempo estático
+    frame_anotado, _ = tracker.processar_frame(frame)
     out.write(frame_anotado)
 
   cap.release()
   out.release()
 
-  # Converte o vídeo gerado para codificação H.264 para reprodução no navegador
+  # Converte para H.264 usando FFmpeg para compatibilidade com o navegador no Gradio
   os.system(f'ffmpeg -y -i {temp_output} -vcodec libx264 {final_output}')
+
   return final_output
 
 
-# 5. Lançamento da Interface Web Gradio
+# 4. Inicializa e lança a Interface do Gradio
 demo = gr.Interface(
     fn=processar_video_colab,
     inputs=gr.Video(label="Upload do Vídeo de Teste"),
     outputs=gr.Video(label="Vídeo com Detecção e Alertas"),
-    title="Sistema de Monitoramento com IA - TCC",
+    title="Sistema de Monitoramento com IA - COCO Model",
 )
 
 demo.launch(share=True, debug=True)
