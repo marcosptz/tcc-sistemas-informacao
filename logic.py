@@ -6,7 +6,7 @@ from ultralytics import YOLO
 
 class TrackerComportamental:
     def __init__(self, model_path=None, model_lixo_path=None, model_geral_path='yolo11s.pt', 
-                 limite_tempo_estatico_segundos=3, distancia_proximidade_pixels=180):
+                 limite_tempo_estatico_segundos=1, distancia_proximidade_pixels=180):
         """
         Inicializa o rastreador comportamental com suporte dual de modelos (YOLO11 COCO + Modelo Customizado de Lixo).
         
@@ -57,7 +57,7 @@ class TrackerComportamental:
         # -------------------------------------------------------------
         # 1. Executa Rastreamento Geral (Pessoas e Animais)
         # -------------------------------------------------------------
-        resultados_geral = self.model_geral.track(frame, persist=True, verbose=False, conf=0.15)
+        resultados_geral = self.model_geral.track(frame, persist=True, verbose=False, conf=0.20)
         
         centros_pessoas = []
         centros_animais = []
