@@ -57,7 +57,7 @@ class TrackerComportamental:
         # -------------------------------------------------------------
         # 1. Executa Rastreamento Geral (Pessoas e Animais)
         # -------------------------------------------------------------
-        resultados_geral = self.model_geral.track(frame, persist=True, verbose=False, conf=0.25)
+        resultados_geral = self.model_geral.track(frame, persist=True, verbose=False, conf=0.15)
         
         centros_pessoas = []
         centros_animais = []
