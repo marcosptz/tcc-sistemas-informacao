@@ -1,110 +1,202 @@
 import math
 import time
 import cv2
-
+import numpy as np
+from ultralytics import YOLO
 
 class TrackerComportamental:
+    def __init__(self, model_path=None, model_lixo_path=None, model_geral_path='yolo11s.pt', 
+                 limite_tempo_estatico_segundos=3, distancia_proximidade_pixels=180):
+        """
+        Inicializa o rastreador comportamental com suporte dual de modelos (YOLO11 COCO + Modelo Customizado de Lixo).
+        
+        :param model_path: Mantido para retrocompatibilidade com notebooks existentes.
+        :param model_lixo_path: Caminho para os pesos customizados do Roboflow (best.pt).
+        :param model_geral_path: Modelo oficial YOLO11 para detecção de pessoas e animais.
+        :param limite_tempo_estatico_segundos: Tempo em segundos que o objeto deve ficar parado após a pessoa se afastar.
+        :param distancia_proximidade_pixels: Distância máxima em pixels para considerar interação entre pessoa e objeto.
+        """
+        path_lixo = model_lixo_path or model_path
+        if not path_lixo:
+            raise ValueError("É necessário fornecer o caminho do modelo de lixo (model_path ou model_lixo_path).")
 
-  def __init__(self, model_path, limite_tempo_estatico_segundos=3):
-    from ultralytics import YOLO
+        # Inicializa ambos os modelos da Ultralytics
+        self.model_lixo = YOLO(path_lixo)
+        self.model_geral = YOLO(model_geral_path)
 
-    # Carregando o modelo escolhido
-    self.model = YOLO(model_path)
-    # Carregando o modelo oficial pré treinado na COCO
-    # self.model = YOLO('yolov8m.pt')
-    self.limite_segundos = limite_tempo_estatico_segundos
+        self.limite_tempo_estatico = limite_tempo_estatico_segundos
+        self.distancia_proximidade = distancia_proximidade_pixels
 
-    # Histórico de rastreamento para controle de tempo: {track_id: timestamp_inicial}
-    self.tempo_estatico_objetos = {}
+        # Dicionário de estado dos objetos/animais rastreados:
+        # id_track -> { 'centro': (x,y), 'tempo_inicio_estatico': float, 'interacao_humana': bool, 'alerta': bool, 'tipo': str }
+        self.historico_objetos = {}
 
-  def calcular_distancia(self, p1, p2):
-    return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+        # Mapeamento de classes do modelo COCO para Pessoas e Animais
+        self.CLASSES_GERAIS_INTERESSE = {
+            0: 'Pessoa',
+            16: 'Cão',
+            17: 'Gato'
+        }
 
-  def processar_frame(self, frame):
-    # Executa a detecção e o rastreamento do YOLOv8
-    results = self.model.track(frame, persist=True, conf=0.10, imgsz=1280,)
+    def _calcular_centro(self, box):
+        """Calcula o ponto central (x, y) de um Bounding Box [x1, y1, x2, y2]."""
+        x1, y1, x2, y2 = box
+        return (int((x1 + x2) / 2), int((y1 + y2) / 2))
 
-    # Classes base do dataset COCO que serão utilizadas para separar pessoas, animais e objetos
-    pessoas = []
-    animais = []
-    objetos = []
-    # Classes do dataset COCO que podem ser consideradas objetos/recipientes/lixo
-    CLASSES_OBJETOS = [
-        'bottle',
-        'cup',
-        'backpack',
-        'handbag',
-        'suitcase',
-        'box',
-        'sports ball',
-        'cell phone',
-        'book',
-        'bowl',
-        'umbrella',
-    ]
+    def _calcular_distancia(self, p1, p2):
+        """Calcula a distância euclidiana entre dois pontos."""
+        return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
-    if results[0].boxes is not None and results[0].boxes.id is not None:
-      boxes = results[0].boxes.xyxy.cpu().numpy()
-      ids = results[0].boxes.id.cpu().numpy()
-      clss = results[0].boxes.cls.cpu().numpy()
+    def processar_frame(self, frame):
+        """
+        Processa um frame individual, realiza a detecção combinada e aplica a regra comportamental.
+        """
+        tempo_atual = time.time()
+        frame_desenho = frame.copy()
 
-      for box, track_id, cls in zip(boxes, ids, clss):
-        x1, y1, x2, y2 = map(int, box)
-        nome_classe = self.model.names[int(cls)].lower()
-        centro = ((x1 + x2) // 2, (y1 + y2) // 2)
+        # -------------------------------------------------------------
+        # 1. Executa Rastreamento Geral (Pessoas e Animais)
+        # -------------------------------------------------------------
+        resultados_geral = self.model_geral.track(frame, persist=True, verbose=False, conf=0.25)
+        
+        centros_pessoas = []
+        centros_animais = []
 
-        # 1. Agrupamento por Categoria
-        if nome_classe in ['person', 'pessoa']:  # Pessoas
-          pessoas.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro})
-        elif nome_classe in ['dog', 'cat', 'cachorro', 'gato', 'animal']:  # Animais (Cães e Gatos)
-          animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe})
-        elif nome_classe in CLASSES_OBJETOS:  # Que podem ser consideradas objetos/recipientes/lixo
-          objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
-        else:  # Qualquer outro objeto (saco, garrafa, caixa, objeto_abandonado)
-          objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
+        if resultados_geral and resultados_geral[0].boxes is not None and resultados_geral[0].boxes.id is not None:
+            boxes_geral = resultados_geral[0].boxes.xyxy.cpu().numpy()
+            clss_geral = resultados_geral[0].boxes.cls.cpu().numpy().astype(int)
+            ids_geral = resultados_geral[0].boxes.id.cpu().numpy().astype(int)
 
-    # 2. Desenha Detecções de ANIMAIS (Alerta de Presença)
-    for animal in animais:
-      x1, y1, x2, y2 = animal['bbox']
-      cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 165, 0), 2) # Laranja
-      cv2.putText(frame, f"ANIMAL: {animal['nome'].upper()}", (x1, y1 - 10),
-                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+            for box, cls_idx, track_id in zip(boxes_geral, clss_geral, ids_geral):
+                if cls_idx in self.CLASSES_GERAIS_INTERESSE:
+                    centro = self._calcular_centro(box)
+                    nome_classe = self.CLASSES_GERAIS_INTERESSE[cls_idx]
 
-    # 3. Processa OBJETOS ABANDONADOS
-    tempo_atual = time.time()
-    for obj in objetos:
-      x1, y1, x2, y2 = obj['bbox']
-      track_id = obj['id']
+                    if cls_idx == 0:  # Pessoa
+                        centros_pessoas.append(centro)
+                        cor = (255, 200, 0)  # Ciano/Amarelo
+                    else:  # Animais
+                        centros_animais.append({'id': track_id, 'centro': centro, 'box': box, 'tipo': nome_classe})
+                        cor = (255, 150, 50)
 
-      # Verifica se há alguma pessoa próxima (raio de 150 pixels)
-      pessoa_proxima = False
-      for p in pessoas:
-        if self.calcular_distancia(obj['centro'], p['centro']) < 150:
-          pessoa_proxima = True
-          break
+                    # Desenha Bounding Box de pessoas/animais
+                    x1, y1, x2, y2 = map(int, box)
+                    cv2.rectangle(frame_desenho, (x1, y1), (x2, y2), cor, 2)
+                    cv2.putText(frame_desenho, f"{nome_classe} #{track_id}", (x1, max(y1 - 8, 15)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, cor, 2)
 
-      # Se o objeto está sem ninguém por perto
-      if not pessoa_proxima:
-        if track_id not in self.tempo_estatico_objetos:
-          self.tempo_estatico_objetos[track_id] = tempo_atual
-        else:
-          tempo_parado = tempo_atual - self.tempo_estatico_objetos[track_id]
+        # -------------------------------------------------------------
+        # 2. Executa Rastreamento do Modelo de Lixo / Objetos
+        # -------------------------------------------------------------
+        resultados_lixo = self.model_lixo.track(frame, persist=True, verbose=False, conf=0.15, imgsz=640)
+        
+        lixo_detectado_no_frame = set()
 
-          if tempo_parado >= self.limite_segundos:
-            # DISPARA ALERTA DE OBJETO ABANDONADO / LIXO
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3) # Vermelho
-            cv2.putText(frame, f"ALERTA: DESCARTE ({int(tempo_parado)}s)", (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-      else:
-        # Se uma pessoa se aproximar do objeto novamente, reseta o tempo
-        if track_id in self.tempo_estatico_objetos:
-          del self.tempo_estatico_objetos[track_id]
+        if resultados_lixo and resultados_lixo[0].boxes is not None and resultados_lixo[0].boxes.id is not None:
+            boxes_lixo = resultados_lixo[0].boxes.xyxy.cpu().numpy()
+            clss_lixo = resultados_lixo[0].boxes.cls.cpu().numpy().astype(int)
+            ids_lixo = resultados_lixo[0].boxes.id.cpu().numpy().astype(int)
+            nomes_classes_lixo = resultados_lixo[0].names
 
-    # 4. Desenha PESSOAS
-    for p in pessoas:
-      x1, y1, x2, y2 = p['bbox']
-      cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2) # Azul
-      cv2.putText(frame, "PESSOA", (x1, y1 - 10),
-                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+            for box, cls_idx, track_id in zip(boxes_lixo, clss_lixo, ids_lixo):
+                centro_objeto = self._calcular_centro(box)
+                nome_obj = nomes_classes_lixo.get(cls_idx, "Lixo")
+                lixo_detectado_no_frame.add(track_id)
 
-    return frame, results
+                # Se é um novo objeto rastreado, inicializa no histórico
+                if track_id not in self.historico_objetos:
+                    self.historico_objetos[track_id] = {
+                        'centro': centro_objeto,
+                        'tempo_inicio_estatico': tempo_atual,
+                        'interacao_humana': False,
+                        'alerta': False,
+                        'tipo': 'Lixo'
+                    }
+                
+                estado_obj = self.historico_objetos[track_id]
+
+                # -------------------------------------------------------------
+                # 3. Verifica Proximidade de Pessoas (Condição de Validação)
+                # -------------------------------------------------------------
+                pessoa_proxima = False
+                for centro_pessoa in centros_pessoas:
+                    distancia = self._calcular_distancia(centro_objeto, centro_pessoa)
+                    if distancia <= self.distancia_proximidade:
+                        pessoa_proxima = True
+                        estado_obj['interacao_humana'] = True
+                        # Reseta o tempo estático enquanto houver uma pessoa mexendo/próxima
+                        estado_obj['tempo_inicio_estatico'] = tempo_atual
+                        # Linha visual de conexão entre a pessoa e o objeto
+                        cv2.line(frame_desenho, centro_objeto, centro_pessoa, (0, 255, 255), 1, cv2.LINE_AA)
+                        break
+
+                # Se o objeto se moveu significativamente sozinho, reseta o timer
+                if self._calcular_distancia(centro_objeto, estado_obj['centro']) > 15:
+                    estado_obj['centro'] = centro_objeto
+                    estado_obj['tempo_inicio_estatico'] = tempo_atual
+
+                # -------------------------------------------------------------
+                # 4. Avalia Condição de Descarte Irregular
+                # -------------------------------------------------------------
+                tempo_parado = tempo_atual - estado_obj['tempo_inicio_estatico']
+
+                # Apenas dispara o alerta se:
+                # 1. Teve interação humana prêvia CONFIRMADA
+                # 2. A pessoa NÃO está mais próxima (afastou-se/saiu)
+                # 3. Objeto permaneceu parado por mais que o tempo limite
+                if estado_obj['interacao_humana'] and not pessoa_proxima and tempo_parado >= self.limite_tempo_estatico:
+                    estado_obj['alerta'] = True
+
+                # Cores e Bounding Boxes baseados no estado
+                x1, y1, x2, y2 = map(int, box)
+                if estado_obj['alerta']:
+                    cor_box = (0, 0, 255)  # Vermelho Alerta
+                    label = f"ALERTA: Descarte Irregular #{track_id}"
+                    # Efeito visual de destaque pisca-pisca
+                    cv2.rectangle(frame_desenho, (x1-3, y1-3), (x2+3, y2+3), (0, 0, 255), 3)
+                elif estado_obj['interacao_humana']:
+                    cor_box = (0, 165, 255)  # Laranja (Monitorando descarte)
+                    label = f"{nome_obj} #{track_id} (Aguardando {int(tempo_parado)}s)"
+                else:
+                    cor_box = (128, 128, 128)  # Cinza (Objeto antigo / sem interação)
+                    label = f"{nome_obj} #{track_id} (Sem Interacao)"
+
+                cv2.rectangle(frame_desenho, (x1, y1), (x2, y2), cor_box, 2)
+                cv2.putText(frame_desenho, label, (x1, max(y1 - 8, 15)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, cor_box, 2)
+
+        # -------------------------------------------------------------
+        # 5. Avalia Abandono de Animais
+        # -------------------------------------------------------------
+        for animal in centros_animais:
+            track_id = f"animal_{animal['id']}"
+            centro_animal = animal['centro']
+            
+            if track_id not in self.historico_objetos:
+                self.historico_objetos[track_id] = {
+                    'centro': centro_animal,
+                    'tempo_inicio_estatico': tempo_atual,
+                    'interacao_humana': False,
+                    'alerta': False,
+                    'tipo': animal['tipo']
+                }
+
+            estado_animal = self.historico_objetos[track_id]
+
+            pessoa_proxima = False
+            for centro_pessoa in centros_pessoas:
+                if self._calcular_distancia(centro_animal, centro_pessoa) <= self.distancia_proximidade:
+                    pessoa_proxima = True
+                    estado_animal['interacao_humana'] = True
+                    estado_animal['tempo_inicio_estatico'] = tempo_atual
+                    break
+
+            tempo_parado_animal = tempo_atual - estado_animal['tempo_inicio_estatico']
+
+            if estado_animal['interacao_humana'] and not pessoa_proxima and tempo_parado_animal >= (self.limite_tempo_estatico * 2):
+                estado_animal['alerta'] = True
+                x1, y1, x2, y2 = map(int, animal['box'])
+                cv2.putText(frame_desenho, f"ALERTA: Possivel Abandono ({animal['tipo']})", 
+                            (x1, max(y1 - 25, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+        return frame_desenho, self.historico_objetos
