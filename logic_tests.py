@@ -20,9 +20,29 @@ class TrackerComportamental:
   def calcular_distancia(self, p1, p2):
     return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
 
+  def processar_frame_lixo(self, frame):
+    # Executa a detecção e do modelo best YOLO11
+    results = self.model_lixo.track(frame, persist=True, conf=0.25, imgsz=1280,)
+    objetos = []
+    
+    if results[0].boxes is not None and results[0].boxes.id is not None:
+      boxes = results[0].boxes.xyxy.cpu().numpy()
+      ids = results[0].boxes.id.cpu().numpy()
+      clss = results[0].boxes.cls.cpu().numpy()
+      
+      for box, track_id, cls in zip(boxes, ids, clss):
+        x1, y1, x2, y2 = map(int, box)
+        nome_classe = self.model_geral.names[int(cls)].lower()
+        centro = ((x1 + x2) // 2, (y1 + y2) // 2)
+        objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
+
+    return objetos
+  
+
   def processar_frame(self, frame):
-    # Executa a detecção e o rastreamento do YOLOv8
+    # Executa a detecção e o rastreamento do YOLO11
     results = self.model_geral.track(frame, persist=True, conf=0.25, imgsz=1280,)
+    resultados_lixo = false
 
     # Classes base do dataset COCO que serão utilizadas para separar pessoas, animais e objetos
     pessoas = []
@@ -44,7 +64,8 @@ class TrackerComportamental:
           if nome_classe in ['dog', 'cat', 'cachorro', 'gato', 'animal']:
             animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe})
           else:
-            objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
+            resultados_lixo = true
+            # objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
 
         # 1. Agrupamento por Categoria
         """if nome_classe in ['person', 'pessoa']:  # Pessoas
@@ -62,6 +83,7 @@ class TrackerComportamental:
                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
 
     # 3. Processa OBJETOS ABANDONADOS
+    if(resultados_lixo) objetos = self.processar_frame_lixo(frame)
     tempo_atual = time.time()
     for obj in objetos:
       x1, y1, x2, y2 = obj['bbox']
