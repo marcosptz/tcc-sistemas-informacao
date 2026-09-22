@@ -2,23 +2,21 @@ import math
 import time
 import cv2
 import numpy as np
+import torch
 from ultralytics import YOLO
 
 class TrackerComportamental:
     def __init__(self, model_path=None, model_lixo_path=None, model_geral_path='yolo11s.pt', 
-                 limite_tempo_estatico_segundos=1, distancia_proximidade_pixels=180):
+                 limite_tempo_estatico_segundos=3, distancia_proximidade_pixels=180):
         """
         Inicializa o rastreador comportamental com suporte dual de modelos (YOLO11 COCO + Modelo Customizado de Lixo).
-        
-        :param model_path: Mantido para retrocompatibilidade com notebooks existentes.
-        :param model_lixo_path: Caminho para os pesos customizados do Roboflow (best.pt).
-        :param model_geral_path: Modelo oficial YOLO11 para detecção de pessoas e animais.
-        :param limite_tempo_estatico_segundos: Tempo em segundos que o objeto deve ficar parado após a pessoa se afastar.
-        :param distancia_proximidade_pixels: Distância máxima em pixels para considerar interação entre pessoa e objeto.
         """
         path_lixo = model_lixo_path or model_path
         if not path_lixo:
             raise ValueError("É necessário fornecer o caminho do modelo de lixo (model_path ou model_lixo_path).")
+
+        # Seleciona explicitamente a GPU CUDA se disponível
+        self.device = 0 if torch.cuda.is_available() else 'cpu'
 
         # Inicializa ambos os modelos da Ultralytics
         self.model_lixo = YOLO(path_lixo)
@@ -27,8 +25,7 @@ class TrackerComportamental:
         self.limite_tempo_estatico = limite_tempo_estatico_segundos
         self.distancia_proximidade = distancia_proximidade_pixels
 
-        # Dicionário de estado dos objetos/animais rastreados:
-        # id_track -> { 'centro': (x,y), 'tempo_inicio_estatico': float, 'interacao_humana': bool, 'alerta': bool, 'tipo': str }
+        # Dicionário de estado dos objetos/animais rastreados
         self.historico_objetos = {}
 
         # Mapeamento de classes do modelo COCO para Pessoas e Animais
@@ -39,25 +36,25 @@ class TrackerComportamental:
         }
 
     def _calcular_centro(self, box):
-        """Calcula o ponto central (x, y) de um Bounding Box [x1, y1, x2, y2]."""
         x1, y1, x2, y2 = box
         return (int((x1 + x2) / 2), int((y1 + y2) / 2))
 
     def _calcular_distancia(self, p1, p2):
-        """Calcula a distância euclidiana entre dois pontos."""
         return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
     def processar_frame(self, frame):
         """
-        Processa um frame individual, realiza a detecção combinada e aplica a regra comportamental.
+        Processa um frame individual com aceleração GPU garantida.
         """
         tempo_atual = time.time()
         frame_desenho = frame.copy()
 
         # -------------------------------------------------------------
-        # 1. Executa Rastreamento Geral (Pessoas e Animais)
+        # 1. Executa Rastreamento Geral (Pessoas e Animais) na GPU
         # -------------------------------------------------------------
-        resultados_geral = self.model_geral.track(frame, persist=True, verbose=False, conf=0.20)
+        resultados_geral = self.model_geral.track(
+            frame, persist=True, verbose=False, conf=0.25, device=self.device
+        )
         
         centros_pessoas = []
         centros_animais = []
@@ -74,21 +71,22 @@ class TrackerComportamental:
 
                     if cls_idx == 0:  # Pessoa
                         centros_pessoas.append(centro)
-                        cor = (255, 200, 0)  # Ciano/Amarelo
+                        cor = (255, 200, 0)
                     else:  # Animais
                         centros_animais.append({'id': track_id, 'centro': centro, 'box': box, 'tipo': nome_classe})
                         cor = (255, 150, 50)
 
-                    # Desenha Bounding Box de pessoas/animais
                     x1, y1, x2, y2 = map(int, box)
                     cv2.rectangle(frame_desenho, (x1, y1), (x2, y2), cor, 2)
                     cv2.putText(frame_desenho, f"{nome_classe} #{track_id}", (x1, max(y1 - 8, 15)),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, cor, 2)
 
         # -------------------------------------------------------------
-        # 2. Executa Rastreamento do Modelo de Lixo / Objetos
+        # 2. Executa Rastreamento do Modelo de Lixo na GPU
         # -------------------------------------------------------------
-        resultados_lixo = self.model_lixo.track(frame, persist=True, verbose=False, conf=0.15, imgsz=640)
+        resultados_lixo = self.model_lixo.track(
+            frame, persist=True, verbose=False, conf=0.15, imgsz=640, device=self.device
+        )
         
         lixo_detectado_no_frame = set()
 
@@ -103,7 +101,6 @@ class TrackerComportamental:
                 nome_obj = nomes_classes_lixo.get(cls_idx, "Lixo")
                 lixo_detectado_no_frame.add(track_id)
 
-                # Se é um novo objeto rastreado, inicializa no histórico
                 if track_id not in self.historico_objetos:
                     self.historico_objetos[track_id] = {
                         'centro': centro_objeto,
@@ -115,59 +112,44 @@ class TrackerComportamental:
                 
                 estado_obj = self.historico_objetos[track_id]
 
-                # -------------------------------------------------------------
-                # 3. Verifica Proximidade de Pessoas (Condição de Validação)
-                # -------------------------------------------------------------
+                # 3. Verifica Proximidade de Pessoas
                 pessoa_proxima = False
                 for centro_pessoa in centros_pessoas:
                     distancia = self._calcular_distancia(centro_objeto, centro_pessoa)
                     if distancia <= self.distancia_proximidade:
                         pessoa_proxima = True
                         estado_obj['interacao_humana'] = True
-                        # Reseta o tempo estático enquanto houver uma pessoa mexendo/próxima
                         estado_obj['tempo_inicio_estatico'] = tempo_atual
-                        # Linha visual de conexão entre a pessoa e o objeto
                         cv2.line(frame_desenho, centro_objeto, centro_pessoa, (0, 255, 255), 1, cv2.LINE_AA)
                         break
 
-                # Se o objeto se moveu significativamente sozinho, reseta o timer
                 if self._calcular_distancia(centro_objeto, estado_obj['centro']) > 15:
                     estado_obj['centro'] = centro_objeto
                     estado_obj['tempo_inicio_estatico'] = tempo_atual
 
-                # -------------------------------------------------------------
                 # 4. Avalia Condição de Descarte Irregular
-                # -------------------------------------------------------------
                 tempo_parado = tempo_atual - estado_obj['tempo_inicio_estatico']
 
-                # Apenas dispara o alerta se:
-                # 1. Teve interação humana prêvia CONFIRMADA
-                # 2. A pessoa NÃO está mais próxima (afastou-se/saiu)
-                # 3. Objeto permaneceu parado por mais que o tempo limite
                 if estado_obj['interacao_humana'] and not pessoa_proxima and tempo_parado >= self.limite_tempo_estatico:
                     estado_obj['alerta'] = True
 
-                # Cores e Bounding Boxes baseados no estado
                 x1, y1, x2, y2 = map(int, box)
                 if estado_obj['alerta']:
-                    cor_box = (0, 0, 255)  # Vermelho Alerta
+                    cor_box = (0, 0, 255)
                     label = f"ALERTA: Descarte Irregular #{track_id}"
-                    # Efeito visual de destaque pisca-pisca
                     cv2.rectangle(frame_desenho, (x1-3, y1-3), (x2+3, y2+3), (0, 0, 255), 3)
                 elif estado_obj['interacao_humana']:
-                    cor_box = (0, 165, 255)  # Laranja (Monitorando descarte)
+                    cor_box = (0, 165, 255)
                     label = f"{nome_obj} #{track_id} (Aguardando {int(tempo_parado)}s)"
                 else:
-                    cor_box = (128, 128, 128)  # Cinza (Objeto antigo / sem interação)
+                    cor_box = (128, 128, 128)
                     label = f"{nome_obj} #{track_id} (Sem Interacao)"
 
                 cv2.rectangle(frame_desenho, (x1, y1), (x2, y2), cor_box, 2)
                 cv2.putText(frame_desenho, label, (x1, max(y1 - 8, 15)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, cor_box, 2)
 
-        # -------------------------------------------------------------
         # 5. Avalia Abandono de Animais
-        # -------------------------------------------------------------
         for animal in centros_animais:
             track_id = f"animal_{animal['id']}"
             centro_animal = animal['centro']
