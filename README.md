@@ -57,74 +57,106 @@ import gradio as gr
 from google.colab import drive
 from ultralytics import YOLO
 
+# 1. Monta o Google Drive
 drive.mount('/content/drive')
 
-# 1. Atualiza o repositório GitHub
-if os.path.exists('/content/projeto_tcc'):
-  shutil.rmtree('/content/projeto_tcc')
+# 2. Atualiza e importa o repositório do projeto
+REPO_DIR = '/content/projeto_tcc'
+if os.path.exists(REPO_DIR):
+    shutil.rmtree(REPO_DIR)
 
-!git clone https://github.com/marcosptz/tcc-sistemas-informacao.git /content/projeto_tcc
+os.system(f'git clone https://github.com/marcosptz/tcc-sistemas-informacao.git {REPO_DIR}')
 
-if '/content/projeto_tcc' not in sys.path:
-  sys.path.append('/content/projeto_tcc')
+if REPO_DIR not in sys.path:
+    sys.path.append(REPO_DIR)
 
 from logic import TrackerComportamental
 
-# -------------------------------------------------------------
-# Escolha qual modelo quer usar (Descomente apenas uma das opções):
-# -------------------------------------------------------------
+# 3. Inicializa o Tracker com o modelo treinado no YOLO11
+MODELO_PATH = '/content/drive/MyDrive/TCC_Resultados/treino_lixo_yolo11/weights/best.pt'
 
-# Opção A: YOLOv8s, YOLO11s, YOLO26s (Nome correto: sem o 'v')
-# MODEL_PATH = 'yolo26s.pt'
-
-# Opção B: Seu modelo customizado de Lixo treinado no Roboflow
-MODEL_PATH = '/content/drive/MyDrive/TCC_Resultados/treino_lixo_yolo11/weights/best.pt'
-
-# 2. Inicializa o Tracker passando a STRING com o caminho do modelo
 tracker = TrackerComportamental(
-    model_path=MODEL_PATH, limite_tempo_estatico_segundos=3
+    model_path=MODELO_PATH,
+    limite_tempo_estatico_segundos=3
 )
 
-# 3. DEFINE A FUNÇÃO PROCESSAR_VIDEO_COLAB
-def processar_video_colab(video_path):
-  if video_path is None:
-    return None
+# 4. Função principal de processamento (Vídeo Gravado ou Câmera IP Ao Vivo)
+def processar_midia(video_path, url_camera_ip, duracao_stream_segundos=15):
+    """
+    Processa um arquivo de vídeo enviado OU um link RTSP/HTTP de câmera IP.
+    """
+    # Define a fonte de entrada
+    if url_camera_ip and url_camera_ip.strip():
+        fonte = url_camera_ip.strip()
+        is_stream = True
+    elif video_path is not None:
+        fonte = video_path
+        is_stream = False
+    else:
+        return None
 
-  cap = cv2.VideoCapture(video_path)
-  width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-  height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-  fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+    cap = cv2.VideoCapture(fonte)
 
-  temp_output = '/content/temp_processado.mp4'
-  final_output = '/content/video_processado.mp4'
+    if not cap.isOpened():
+        print(f"Erro ao abrir a fonte de vídeo: {fonte}")
+        return None
 
-  fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-  out = cv2.VideoWriter(temp_output, fourcc, fps, (width, height))
+    # Obtém propriedades do vídeo/stream
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
+    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+    if fps <= 0 or fps > 60:
+        fps = 30
 
-  while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-      break
+    temp_output = '/content/temp_processado.mp4'
+    final_output = '/content/video_processado.mp4'
 
-    # Processa o frame com a lógica de detecção e tempo estático
-    frame_anotado, _ = tracker.processar_frame(frame)
-    out.write(frame_anotado)
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(temp_output, fourcc, fps, (width, height))
 
-  cap.release()
-  out.release()
+    # Se for stream ao vivo, limita a quantidade de frames gravados
+    max_frames = int(fps * duracao_stream_segundos) if is_stream else float('inf')
+    frame_count = 0
 
-  # Converte para H.264 usando FFmpeg para compatibilidade com o navegador no Gradio
-  os.system(f'ffmpeg -y -i {temp_output} -vcodec libx264 {final_output}')
+    while cap.isOpened() and frame_count < max_frames:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-  return final_output
+        # Processa o frame com a IA de detecção e rastreamento
+        frame_anotado, _ = tracker.processar_frame(frame)
+        out.write(frame_anotado)
+        frame_count += 1
 
+    cap.release()
+    out.release()
 
-# 4. Inicializa e lança a Interface do Gradio
+    # Recodifica o vídeo para H.264 para reprodução nativa no navegador (Gradio)
+    os.system(f'ffmpeg -y -i {temp_output} -vcodec libx264 {final_output}')
+
+    return final_output
+
+# 5. Interface Gradio
 demo = gr.Interface(
-    fn=processar_video_colab,
-    inputs=gr.Video(label="Upload do Vídeo de Teste"),
-    outputs=gr.Video(label="Vídeo com Detecção e Alertas"),
-    title="Sistema de Monitoramento com IA - COCO Model",
+    fn=processar_midia,
+    inputs=[
+        gr.Video(label="Opção 1: Upload de Vídeo MP4 (Arquivo)"),
+        gr.Textbox(
+            label="Opção 2: Link da Câmera IP / RTSP (Transmissão Ao Vivo)",
+            placeholder="Ex: rtsp://admin:senha@192.168.1.100:554/stream1 ou http://192.168.1.50:8080/video"
+        ),
+        gr.Slider(
+            minimum=5,
+            maximum=60,
+            value=15,
+            step=5,
+            label="Duração da captura do Stream IP (segundos)"
+        )
+    ],
+    outputs=gr.Video(label="Resultado Processado com Detecção do TCC"),
+    title="Sistema de Monitoramento CFTV com IA - Detecção de Descarte Irregular",
+    description="Escolha entre fazer o upload de um vídeo gravado ou colar a URL RTSP/HTTP de uma Câmera IP ao vivo."
 )
 
-demo.launch(share=True, debug=True)
+if __name__ == "__main__":
+    demo.launch(share=True, debug=True)
