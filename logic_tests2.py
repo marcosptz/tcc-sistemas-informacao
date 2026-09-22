@@ -22,7 +22,7 @@ class TrackerComportamental:
 
   def processar_frame(self, frame):
     # Executa a detecção e o rastreamento do YOLOv8
-    results = self.model.track(frame, persist=True, conf=0.25, imgsz=1280,)
+    results = self.model.track(frame, persist=True, verbose=False, conf=0.25, imgsz=1280,)
 
     # Classes base do dataset COCO que serão utilizadas para separar pessoas, animais e objetos
     pessoas = []
