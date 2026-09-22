@@ -9,8 +9,8 @@ class TrackerComportamental:
     def __init__(self, model_path=None, model_lixo_path=None, model_geral_path='yolo11s.pt', 
                  limite_tempo_estatico_segundos=3, distancia_proximidade_pixels=100):
         """
-        Inicializa o rastreador comportamental otimizado com prevenção de falsos positivos
-        e memória de persistência para objetos recém-descartados.
+        Inicializa o rastreador comportamental otimizado com prevenção de falsos positivos,
+        cálculo de proximidade baseado na caixa delimitadora (bbox) e memória de persistência.
         """
         path_lixo = model_lixo_path or model_path
         if not path_lixo:
@@ -43,9 +43,20 @@ class TrackerComportamental:
     def _calcular_distancia(self, p1, p2):
         return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
+    def _distancia_ponto_caixa(self, ponto, box):
+        """
+        Calcula a menor distância entre o centro do objeto e o retângulo (bbox) da pessoa.
+        Garante detecção precisa mesmo quando a pessoa segura ou deixa o lixo nos pés.
+        """
+        px, py = ponto
+        x1, y1, x2, y2 = box
+        dx = max(x1 - px, 0, px - x2)
+        dy = max(y1 - py, 0, py - y2)
+        return math.hypot(dx, dy)
+
     def processar_frame(self, frame):
         """
-        Processa um frame individual com inteligência contra objetos pré-existentes e memória de rastreio.
+        Processa um frame individual com inteligência de proximidade e persistência.
         """
         tempo_atual = time.time()
         frame_desenho = frame.copy()
@@ -58,6 +69,7 @@ class TrackerComportamental:
         )
         
         centros_pessoas = []
+        boxes_pessoas = []
         centros_animais = []
 
         if resultados_geral and resultados_geral[0].boxes is not None and resultados_geral[0].boxes.id is not None:
@@ -72,6 +84,7 @@ class TrackerComportamental:
 
                     if cls_idx == 0:  # Pessoa
                         centros_pessoas.append(centro)
+                        boxes_pessoas.append(box)
                         cor = (255, 200, 0)
                     else:  # Animais
                         centros_animais.append({'id': track_id, 'centro': centro, 'box': box, 'tipo': nome_classe})
@@ -102,23 +115,27 @@ class TrackerComportamental:
                 nome_obj = nomes_classes_lixo.get(cls_idx, "Lixo")
                 lixo_detectado_no_frame.add(track_id)
 
-                # Inicialização do Objeto
+                # Avalia proximidade com pessoas usando a menor distância até o corpo/pés da pessoa
+                pessoa_proxima = False
+                centro_pessoa_proxima = None
+                
+                for p_box, p_centro in zip(boxes_pessoas, centros_pessoas):
+                    dist_box = self._distancia_ponto_caixa(centro_objeto, p_box)
+                    if dist_box <= self.distancia_proximidade:
+                        pessoa_proxima = True
+                        centro_pessoa_proxima = p_centro
+                        break
+
+                # Inicialização de novo objeto detectado
                 if track_id not in self.historico_objetos:
-                    # Se não havia nenhuma pessoa perto no momento em que o objeto apareceu no vídeo,
-                    # ele é classificado como "Pré-existente" para evitar alertas falsos quando alguém passar perto.
-                    pessoa_presente_no_surgimento = any(
-                        self._calcular_distancia(centro_objeto, cp) <= self.distancia_proximidade 
-                        for cp in centros_pessoas
-                    )
-                    
                     self.historico_objetos[track_id] = {
                         'centro': centro_objeto,
                         'box': box,
                         'tempo_criacao': tempo_atual,
                         'tempo_inicio_estatico': tempo_atual,
                         'ultima_vez_visto': tempo_atual,
-                        'interacao_humana': False,
-                        'preexistente': not pessoa_presente_no_surgimento,
+                        'interacao_humana': pessoa_proxima,
+                        'preexistente': not pessoa_proxima,
                         'alerta': False,
                         'tipo': nome_obj
                     }
@@ -127,22 +144,20 @@ class TrackerComportamental:
                 estado_obj['ultima_vez_visto'] = tempo_atual
                 estado_obj['box'] = box
 
-                # Verifica Proximidade de Pessoas
-                pessoa_proxima = False
-                for centro_pessoa in centros_pessoas:
-                    distancia = self._calcular_distancia(centro_objeto, centro_pessoa)
-                    if distancia <= self.distancia_proximidade:
-                        pessoa_proxima = True
-                        # Apenas marca interação humana se O OBJETO NÃO FOR PRÉ-EXISTENTE
-                        if not estado_obj['preexistente']:
-                            estado_obj['interacao_humana'] = True
-                            estado_obj['tempo_inicio_estatico'] = tempo_atual
-                        cv2.line(frame_desenho, centro_objeto, centro_pessoa, (0, 255, 255), 1, cv2.LINE_AA)
-                        break
+                # Atualiza interação humana
+                if pessoa_proxima:
+                    if not estado_obj['preexistente']:
+                        estado_obj['interacao_humana'] = True
+                        estado_obj['tempo_inicio_estatico'] = tempo_atual
+                    cv2.line(frame_desenho, centro_objeto, centro_pessoa_proxima, (0, 255, 255), 1, cv2.LINE_AA)
 
+                # Se o objeto mudar de posição significativamente, reavalia a estática
                 if self._calcular_distancia(centro_objeto, estado_obj['centro']) > 15:
                     estado_obj['centro'] = centro_objeto
                     estado_obj['tempo_inicio_estatico'] = tempo_atual
+                    if pessoa_proxima:
+                        estado_obj['preexistente'] = False
+                        estado_obj['interacao_humana'] = True
 
                 # Avalia Condição de Descarte Irregular
                 tempo_parado = tempo_atual - estado_obj['tempo_inicio_estatico']
@@ -177,15 +192,13 @@ class TrackerComportamental:
             if isinstance(track_id, str) and track_id.startswith("animal_"):
                 continue
 
-            # Se o objeto não foi detectado no frame atual, mas estava em interação ou alerta recente
             if track_id not in lixo_detectado_no_frame:
                 tempo_sem_ver = tempo_atual - estado_obj['ultima_vez_visto']
 
-                # Mantém na memória por até 5 segundos após sumir da detecção do YOLO
                 if tempo_sem_ver <= 5.0 and estado_obj['interacao_humana']:
                     pessoa_proxima = any(
-                        self._calcular_distancia(estado_obj['centro'], cp) <= self.distancia_proximidade 
-                        for cp in centros_pessoas
+                        self._distancia_ponto_caixa(estado_obj['centro'], p_box) <= self.distancia_proximidade 
+                        for p_box in boxes_pessoas
                     )
                     
                     tempo_parado = tempo_atual - estado_obj['tempo_inicio_estatico']
@@ -216,13 +229,14 @@ class TrackerComportamental:
 
             estado_animal = self.historico_objetos[track_id]
 
-            pessoa_proxima = False
-            for centro_pessoa in centros_pessoas:
-                if self._calcular_distancia(centro_animal, centro_pessoa) <= self.distancia_proximidade:
-                    pessoa_proxima = True
-                    estado_animal['interacao_humana'] = True
-                    estado_animal['tempo_inicio_estatico'] = tempo_atual
-                    break
+            pessoa_proxima = any(
+                self._distancia_ponto_caixa(centro_animal, p_box) <= self.distancia_proximidade 
+                for p_box in boxes_pessoas
+            )
+
+            if pessoa_proxima:
+                estado_animal['interacao_humana'] = True
+                estado_animal['tempo_inicio_estatico'] = tempo_atual
 
             tempo_parado_animal = tempo_atual - estado_animal['tempo_inicio_estatico']
 
