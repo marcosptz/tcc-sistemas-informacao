@@ -31,6 +31,7 @@ class TrackerComportamental:
         self.limite_tempo_estatico = limite_tempo_estatico_segundos
         self.distancia_proximidade = distancia_proximidade_pixels
         self.tempo_parado = 0
+        self.tempo_pessoa = 0
         self.tempo_estatico_geral = time.time()
         self.tempo_estatico = time.time()
         self.pessoa_detectada = False
@@ -79,6 +80,7 @@ class TrackerComportamental:
             # Se detectar uma pessoa, então define o tempo
             if(nome_classe == 'person'): 
               self.pessoa_detectada = True
+              self.tempo_pessoa = time.time()
               self.tempo_estatico_geral = time.time() - self.tempo_ini
             else:
               self.tempo_estatico_geral = self.tempo_parado
@@ -124,7 +126,7 @@ class TrackerComportamental:
             # Se uma pessoa for detectada e o tempo for maior que 3s, então adiciona o alerta para as objetos
             if(self.pessoa_detectada and int(self.tempo_estatico - self.tempo_parado) > self.limite_tempo_estatico):
               cor_box = (0, 0, 255)  # Vermelho Alerta
-              label = f"ALERTA: Descarte Irregular - {nome_obj} #{track_id}"
+              label = f"ALERTA: Descarte Irregular - {nome_obj} #{track_id} ({self.tempo_pessoa} - {time.time()})"
             
             x1, y1, x2, y2 = map(int, box)
             cv2.rectangle(frame_desenho, (x1, y1), (x2, y2), cor_box, 2)
