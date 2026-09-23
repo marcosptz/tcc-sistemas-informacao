@@ -89,7 +89,10 @@ class TrackerComportamental:
               cor = (0, 165, 255)  # Laranja (Monitorando descarte)
               label_geral = f"{nome_classe} #{track_id} (Aguardando {int(self.tempo_estatico_geral - self.tempo_parado)}s)"
 
-            # Se uma pessoa for detectada e o tempo for maior que 3s, então adiciona o alerta para os animais
+            # -----------------------------------------------------------------------------------------------------
+            # ALERTA: Abandono de animal (Aqui será adicionado o alerta para abandono de animais/objetos)
+            # Se uma pessoa for detectada e o tempo for maior que 3s, então adiciona o alerta para as animais/objetos
+            # -----------------------------------------------------------------------------------------------------
             if(self.pessoa_detectada and int(self.tempo_estatico_geral - self.tempo_parado) > self.limite_tempo_estatico):
               cor_box = (0, 0, 255)  # Vermelho Alerta
               label = f"ALERTA: Descarte Irregular - {nome_obj} #{track_id}"
@@ -123,7 +126,10 @@ class TrackerComportamental:
             cor_box = (0, 165, 255)  # Laranja (Monitorando descarte)
             label = f"{nome_obj} #{track_id} (Aguardando {int(self.tempo_estatico - self.tempo_parado)}s)"
 
+            # ---------------------------------------------------------------------------------------------------
+            # ALERTA: Descarte Irregular (Aqui será adicionado o alerta para descarte de lixo)
             # Se uma pessoa for detectada e o tempo for maior que 3s, então adiciona o alerta para as objetos
+            # ---------------------------------------------------------------------------------------------------
             if(self.pessoa_detectada and int(self.tempo_estatico - self.tempo_parado) > self.limite_tempo_estatico):
               cor_box = (0, 0, 255)  # Vermelho Alerta
               label = f"ALERTA: Descarte Irregular - {nome_obj} #{track_id} ({int(time.time() - self.tempo_pessoa)} - {int(self.tempo_estatico - self.tempo_parado)})"
