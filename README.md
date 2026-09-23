@@ -89,24 +89,28 @@ def processar_midia(video_path, url_camera_ip, duracao_stream_segundos=15):
     if url_camera_ip and url_camera_ip.strip():
         fonte = url_camera_ip.strip()
         is_stream = True
+        print(f"[INFO] Conectando à Câmera IP: {fonte}")
     elif video_path is not None:
         fonte = video_path
         is_stream = False
+        print(f"[INFO] Processando arquivo de vídeo: {fonte}")
     else:
         return None
 
     cap = cv2.VideoCapture(fonte)
 
     if not cap.isOpened():
-        print(f"Erro ao abrir a fonte de vídeo: {fonte}")
+        print(f"[ERRO] Não foi possível abrir a fonte de vídeo: {fonte}")
         return None
 
-    # Obtém propriedades do vídeo/stream
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
     fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
     if fps <= 0 or fps > 60:
         fps = 30
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if not is_stream else int(fps * duracao_stream_segundos)
+    max_frames = int(fps * duracao_stream_segundos) if is_stream else total_frames
 
     temp_output = '/content/temp_processado.mp4'
     final_output = '/content/video_processado.mp4'
@@ -114,25 +118,32 @@ def processar_midia(video_path, url_camera_ip, duracao_stream_segundos=15):
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(temp_output, fourcc, fps, (width, height))
 
-    # Se for stream ao vivo, limita a quantidade de frames gravados
-    max_frames = int(fps * duracao_stream_segundos) if is_stream else float('inf')
     frame_count = 0
+    print(f"[INFO] Processamento iniciado na GPU T4. Total de frames estimados: {max_frames}")
 
     while cap.isOpened() and frame_count < max_frames:
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Processa o frame com a IA de detecção e rastreamento
+        # Processa o frame com os 2 modelos YOLO na GPU
         frame_anotado, _ = tracker.processar_frame(frame)
         out.write(frame_anotado)
         frame_count += 1
+
+        if frame_count % 30 == 0 or frame_count == max_frames:
+            progresso = (frame_count / max_frames) * 100
+            print(f"Progresso: {frame_count}/{max_frames} frames ({progresso:.1f}%)")
 
     cap.release()
     out.release()
 
     # Recodifica o vídeo para H.264 para reprodução nativa no navegador (Gradio)
     os.system(f'ffmpeg -y -i {temp_output} -vcodec libx264 {final_output}')
+
+    print("[INFO] Recodificando vídeo para exibição no browser...")
+    os.system(f'ffmpeg -y -i {temp_output} -vcodec libx264 -preset ultrafast {final_output}')
+    print("[INFO] Concluído com sucesso!")
 
     return final_output
 
