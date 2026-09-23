@@ -87,7 +87,7 @@ class TrackerComportamental:
               cor = (0, 165, 255)  # Laranja (Monitorando descarte)
               label_geral = f"{nome_classe} #{track_id} (Aguardando {int(self.tempo_estatico_geral - self.tempo_parado)}s)"
 
-            # Se Se uma pessoa for detectada e o tempo for maior que 3s, então adiciona o alerta para os animais
+            # Se uma pessoa for detectada e o tempo for maior que 3s, então adiciona o alerta para os animais
             if(self.pessoa_detectada and int(self.tempo_estatico_geral - self.tempo_parado) > self.limite_tempo_estatico):
               cor_box = (0, 0, 255)  # Vermelho Alerta
               label = f"ALERTA: Descarte Irregular - {nome_obj} #{track_id}"
