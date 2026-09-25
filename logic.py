@@ -27,16 +27,12 @@ class TrackerComportamental:
     # Executa a detecção e o rastreamento do YOLOv8
     results = self.model.track(frame, persist=True, conf=0.25, imgsz=1280, verbose=False, device=self.device)
 
+    tempo_ini = time.time()
+
     # Classes base do dataset COCO que serão utilizadas para separar pessoas, animais e objetos
     pessoas = []
     animais = []
     objetos = []
-    # Classes do dataset COCO que podem ser consideradas objetos/recipientes/lixo
-    CLASSES = [
-        'Pessoa',
-        'Animal',
-        'Lixo',
-    ]
 
     if results[0].boxes is not None and results[0].boxes.id is not None:
       boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -48,20 +44,23 @@ class TrackerComportamental:
         nome_classe = self.model.names[int(cls)].lower()
         centro = ((x1 + x2) // 2, (y1 + y2) // 2)
 
+        # Monitoramento do objeto
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 3) # Amarelo (Monitorando descarte)
+        cv2.putText(frame, f"{nome_classe} #{track_id} Aguardando...", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+
         # 1. Agrupamento por Categoria
         if nome_classe in ['Pessoa', 'pessoa']:  # Pessoas
-          pessoas.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro})
+          pessoas.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'tempo': time.time()})
         elif nome_classe in ['Animal', 'animal']:  # Animais (Cães e Gatos)
-          animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe})
+          animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe, 'tempo': time.time()})
         else:  # Qualquer outro objeto (saco, garrafa, caixa, objeto_abandonado)
-          objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
+          objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe, 'tempo': time.time()})
 
     # 2. Desenha Detecções de ANIMAIS (Alerta de Presença)
     for animal in animais:
       x1, y1, x2, y2 = animal['bbox']
       cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 165, 0), 2) # Laranja
-      cv2.putText(frame, f"ANIMAL: {animal['nome'].upper()}", (x1, y1 - 10),
-                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+      cv2.putText(frame, f"{nome_classe} #{track_id} ANIMAL: {animal['nome'].upper()}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
 
     # 3. Processa OBJETOS ABANDONADOS
     tempo_atual = time.time()
@@ -86,8 +85,7 @@ class TrackerComportamental:
           if tempo_parado >= self.limite_segundos:
             # DISPARA ALERTA DE OBJETO ABANDONADO / LIXO
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3) # Vermelho
-            cv2.putText(frame, f"ALERTA: DESCARTE ({int(tempo_parado)}s)", (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.putText(frame, f"{nome_classe} #{track_id} ALERTA: DESCARTE ({int(tempo_parado)}s)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
       else:
         # Se uma pessoa se aproximar do objeto novamente, reseta o tempo
         if track_id in self.tempo_estatico_objetos:
@@ -97,7 +95,6 @@ class TrackerComportamental:
     for p in pessoas:
       x1, y1, x2, y2 = p['bbox']
       cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2) # Azul
-      cv2.putText(frame, "PESSOA", (x1, y1 - 10),
-                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+      cv2.putText(frame, f"{nome_classe} #{track_id} PESSOA", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
     return frame, results
