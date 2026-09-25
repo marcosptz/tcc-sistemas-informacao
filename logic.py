@@ -45,8 +45,8 @@ class TrackerComportamental:
         centro = ((x1 + x2) // 2, (y1 + y2) // 2)
 
         # Monitoramento do objeto
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 3) # Amarelo (Monitorando descarte)
-        cv2.putText(frame, f"{nome_classe} #{track_id} Aguardando...", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+        # cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 3) # Amarelo (Monitorando descarte)
+        # cv2.putText(frame, f"{nome_classe} #{track_id} Aguardando...", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
 
         # 1. Agrupamento por Categoria
         if nome_classe in ['Pessoa', 'pessoa']:  # Pessoas
