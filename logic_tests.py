@@ -103,7 +103,7 @@ class TrackerComportamental:
 
                     # Desenha o agente (Pessoa = Azul Ciano, Animais = Rosa)
                     x1, y1, x2, y2 = map(int, box)
-                    cor_agente = (255, 200, 0) if cls_idx == 0 else (255, 0, 255)
+                    cor_agente = (255, 0, 0) if cls_idx == 0 else (255, 0, 255)
                     lbl_id = f" #{track_id}" if track_id is not None else ""
                     
                     cv2.rectangle(frame_desenho, (x1, y1), (x2, y2), cor_agente, 2)
