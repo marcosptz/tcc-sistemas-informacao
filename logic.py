@@ -1,3 +1,5 @@
+!pip install -q --upgrade ultralytics gradio opencv-python
+
 import math
 import time
 import cv2
@@ -5,14 +7,17 @@ import torch
 
 class TrackerComportamental:
 
-  def __init__(self, model_path, limite_tempo_estatico_segundos=3):
+  def __init__(self, model_path, limite_tempo_estatico_segundos=3, distancia_proximidade_pixels=150):
     from ultralytics import YOLO
 
     # Carregando o modelo escolhido
     self.model = YOLO(model_path)
 
-    # Carregando o modelo oficial pré treinado na COCO
+    # Tempo mínimo de permanência do objeto
     self.limite_segundos = limite_tempo_estatico_segundos
+
+    # Distância mńima de uma pessoa próxima (default raio de 150 pixels)
+    self.distancia_proximidade = distancia_proximidade_pixels
 
     # Histórico de rastreamento para controle de tempo: {track_id: timestamp_inicial}
     self.tempo_estatico_objetos = {}
@@ -26,8 +31,6 @@ class TrackerComportamental:
   def processar_frame(self, frame):
     # Executa a detecção e o rastreamento do YOLOv8
     results = self.model.track(frame, persist=True, conf=0.25, imgsz=1280, verbose=False, device=self.device)
-
-    tempo_ini = time.time()
 
     # Classes base do dataset COCO que serão utilizadas para separar pessoas, animais e objetos
     pessoas = []
@@ -44,14 +47,10 @@ class TrackerComportamental:
         nome_classe = self.model.names[int(cls)].lower()
         centro = ((x1 + x2) // 2, (y1 + y2) // 2)
 
-        # Monitoramento do objeto
-        # cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 3) # Amarelo (Monitorando descarte)
-        # cv2.putText(frame, f"{nome_classe} #{track_id} Aguardando...", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-
         # 1. Agrupamento por Categoria
-        if nome_classe in ['Pessoa', 'pessoa']:  # Pessoas
+        if nome_classe in ['person', 'Pessoa', 'pessoa']:  # Pessoas
           pessoas.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'tempo': time.time()})
-        elif nome_classe in ['Animal', 'animal']:  # Animais (Cães e Gatos)
+        elif nome_classe in ['cat', 'dog', 'Animal', 'animal']:  # Animais (Cães e Gatos)
           animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe, 'tempo': time.time()})
         else:  # Qualquer outro objeto (saco, garrafa, caixa, objeto_abandonado)
           objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe, 'tempo': time.time()})
@@ -71,12 +70,15 @@ class TrackerComportamental:
       # Verifica se há alguma pessoa próxima (raio de 150 pixels)
       pessoa_proxima = False
       for p in pessoas:
-        if self.calcular_distancia(obj['centro'], p['centro']) < 150:
+        if self.calcular_distancia(obj['centro'], p['centro']) < self.distancia_proximidade:
           pessoa_proxima = True
+          break
+        else:
+          pessoa_proxima = False
           break
 
       # Se o objeto está sem ninguém por perto
-      if not pessoa_proxima:
+      if self.pessoa_detectada:
         if track_id not in self.tempo_estatico_objetos:
           self.tempo_estatico_objetos[track_id] = tempo_atual
         else:
@@ -85,8 +87,15 @@ class TrackerComportamental:
           if tempo_parado >= self.limite_segundos:
             # DISPARA ALERTA DE OBJETO ABANDONADO / LIXO
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3) # Vermelho
-            cv2.putText(frame, f"{nome_classe} #{track_id} ALERTA: DESCARTE ({int(tempo_parado)}s)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.putText(frame, f"({len(pessoas)}) {nome_classe} #{track_id} ALERTA: DESCARTE ({int(tempo_parado)}s)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+          else:
+            # Monitoramento do objeto
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 3) # Amarelo (Monitorando descarte)
+            cv2.putText(frame, f"{nome_classe} #{track_id} Aguardando ({int(tempo_parado)}s)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
       else:
+        # Objeto pré-existente
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (150, 150, 150), 3) # Cinza (Pre-existente)
+        cv2.putText(frame, f"{nome_classe} #{track_id} (Pre-existente)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 2)
         # Se uma pessoa se aproximar do objeto novamente, reseta o tempo
         if track_id in self.tempo_estatico_objetos:
           del self.tempo_estatico_objetos[track_id]
@@ -95,6 +104,6 @@ class TrackerComportamental:
     for p in pessoas:
       x1, y1, x2, y2 = p['bbox']
       cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2) # Azul
-      cv2.putText(frame, f"{nome_classe} #{track_id} PESSOA", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+      cv2.putText(frame, f"{nome_classe} #{track_id} PESSOA DETECTADA", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
     return frame, results
