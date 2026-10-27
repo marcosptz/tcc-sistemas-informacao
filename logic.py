@@ -76,7 +76,7 @@ class TrackerComportamental:
           break
 
       # Se o objeto está sem ninguém por perto
-      if self.pessoa_detectada:
+      if not pessoa_proxima:
         if track_id not in self.tempo_estatico_objetos:
           self.tempo_estatico_objetos[track_id] = tempo_atual
         else:
