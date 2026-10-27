@@ -1,5 +1,3 @@
-!pip install -q --upgrade ultralytics gradio opencv-python
-
 import math
 import time
 import cv2
