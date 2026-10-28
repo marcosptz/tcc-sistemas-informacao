@@ -58,6 +58,15 @@ from google.colab import drive
 from ultralytics import YOLO
 
 # 1. Monta o Google Drive
+# Remove o diretório /content/drive se existir e não estiver vazio antes de montar
+if os.path.exists('/content/drive') and os.path.isdir('/content/drive'):
+    try:
+        # Unmount if already mounted
+        !fusermount -uz /content/drive
+    except:
+        pass
+    shutil.rmtree('/content/drive', ignore_errors=True)
+os.makedirs('/content/drive', exist_ok=True)
 drive.mount('/content/drive')
 
 # 2. Atualiza e importa o repositório do projeto
@@ -70,10 +79,15 @@ os.system(f'git clone https://github.com/marcosptz/tcc-sistemas-informacao.git {
 if REPO_DIR not in sys.path:
     sys.path.append(REPO_DIR)
 
-from logic import TrackerComportamental
+# Para utilizar dual model, importe o logic_duo
+from logic_duo import TrackerComportamental
 
-# 3. Inicializa o Tracker com o modelo treinado no YOLO11
-MODELO_PATH = '/content/drive/MyDrive/TCC_Resultados/treino_lixo_yolo11/weights/best.pt'
+# 3. Inicializa o Tracker com o modelo treinado no YOLO26, podendo ser utilizado os seguintes modelos:
+# Modelo para utilizar em dual model - treino_descarte_yolo26v4
+# Modelo treinado por 100 épocas - treino_descarte_yolo26m_v3_epch100
+# Modelo utilizando congelamento das 10 primeiras camadas (freeze=10) - treino_descarte_freeze10_yolo26m_v3_epch50
+MODELO = 'treino_descarte_yolo26v4'
+MODELO_PATH = f'/content/drive/MyDrive/TCC_Resultados/{MODELO}/weights/best.pt'
 
 tracker = TrackerComportamental(
     model_path=MODELO_PATH,
@@ -85,6 +99,9 @@ def processar_midia(video_path, url_camera_ip, duracao_stream_segundos=15):
     """
     Processa um arquivo de vídeo enviado OU um link RTSP/HTTP de câmera IP.
     """
+    # Definindo tempo inicial
+    tempo_inicial = time.time()
+
     # Define a fonte de entrada
     if url_camera_ip and url_camera_ip.strip():
         fonte = url_camera_ip.strip()
@@ -144,6 +161,7 @@ def processar_midia(video_path, url_camera_ip, duracao_stream_segundos=15):
     print("[INFO] Recodificando vídeo para exibição no browser...")
     os.system(f'ffmpeg -y -i {temp_output} -vcodec libx264 -preset ultrafast {final_output}')
     print("[INFO] Concluído com sucesso!")
+    print(f'Tempo de execução: {int(time.time() - tempo_inicial)}s')
 
     return final_output
 
