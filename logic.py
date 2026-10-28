@@ -47,11 +47,11 @@ class TrackerComportamental:
 
         # 1. Agrupamento por Categoria
         if nome_classe in ['person', 'Pessoa', 'pessoa']:  # Pessoas
-          pessoas.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'tempo': time.time()})
+          pessoas.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro})
         elif nome_classe in ['cat', 'dog', 'Animal', 'animal']:  # Animais (Cães e Gatos)
-          animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe, 'tempo': time.time()})
+          animais.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'nome': nome_classe})
         else:  # Qualquer outro objeto (saco, garrafa, caixa, objeto_abandonado)
-          objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe, 'tempo': time.time()})
+          objetos.append({'id': track_id, 'bbox': (x1, y1, x2, y2), 'centro': centro, 'nome': nome_classe})
 
     # 2. Desenha Detecções de ANIMAIS (Alerta de Presença)
     for animal in animais:
@@ -85,7 +85,7 @@ class TrackerComportamental:
           if tempo_parado >= self.limite_segundos:
             # DISPARA ALERTA DE OBJETO ABANDONADO / LIXO
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3) # Vermelho
-            cv2.putText(frame, f"({len(pessoas)}) {nome_classe} #{track_id} ALERTA: DESCARTE ({int(tempo_parado)}s)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.putText(frame, f"{nome_classe} #{track_id} ALERTA: DESCARTE ({int(tempo_parado)}s)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
           else:
             # Monitoramento do objeto
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 3) # Amarelo (Monitorando descarte)
