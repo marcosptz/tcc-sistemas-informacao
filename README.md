@@ -52,6 +52,7 @@ Se preferir rodar manualmente em qualquer bloco de notas do Colab, utilize o có
 import os
 import shutil
 import sys
+import time
 import cv2
 import gradio as gr
 from google.colab import drive
@@ -79,14 +80,14 @@ os.system(f'git clone https://github.com/marcosptz/tcc-sistemas-informacao.git {
 if REPO_DIR not in sys.path:
     sys.path.append(REPO_DIR)
 
-# Para utilizar dual model, importe o logic_duo
-from logic_duo import TrackerComportamental
+# Para utilizar dual model, utilize o logic_duo no lugar de logic
+from logic import TrackerComportamental
 
 # 3. Inicializa o Tracker com o modelo treinado no YOLO26, podendo ser utilizado os seguintes modelos:
 # Modelo para utilizar em dual model - treino_descarte_yolo26v4
 # Modelo treinado por 100 épocas - treino_descarte_yolo26m_v3_epch100
 # Modelo utilizando congelamento das 10 primeiras camadas (freeze=10) - treino_descarte_freeze10_yolo26m_v3_epch50
-MODELO = 'treino_descarte_yolo26v4'
+MODELO = 'treino_descarte_freeze10_yolo26m_v3_epch50'
 MODELO_PATH = f'/content/drive/MyDrive/TCC_Resultados/{MODELO}/weights/best.pt'
 
 tracker = TrackerComportamental(
